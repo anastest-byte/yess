@@ -1,4 +1,4 @@
-name: RDP via Tailscale (Windows)
+name: RDP via Ngrok + Parsec (Windows)
 
 on:
   workflow_dispatch:
@@ -13,8 +13,7 @@ jobs:
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
-          netsh advfirewall firewall delete rule name="RDP-Tailscale" > $null 2>&1
-          netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389
+          netsh advfirewall firewall add rule name="RDP-Ngrok" dir=in action=allow protocol=TCP localport=3389
           Restart-Service -Name TermService -Force
 
       - name: Create local RDP user and print password
@@ -34,38 +33,44 @@ jobs:
           echo "RDP_PASSWORD=$pwd" >> $env:GITHUB_ENV
           echo "::set-output name=password::$pwd"
 
-      - name: Install Tailscale
-        run: |
-          $msi = "$env:TEMP\tailscale.msi"
-          Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi" -OutFile $msi
-          Start-Process msiexec.exe -ArgumentList '/i', "`"$msi`"", '/quiet', '/norestart' -Wait
-          Remove-Item $msi -Force
-
-      - name: Start Tailscale and wait for IP
-        shell: powershell
+      - name: Install Ngrok
         env:
-          TAILSCALE_AUTH_KEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
+          NGROK_AUTHTOKEN: ${{ secrets.NGROK_AUTHTOKEN }}
         run: |
-          $exe = "$env:ProgramFiles\Tailscale\tailscale.exe"
-          & $exe up --authkey=$env:TAILSCALE_AUTH_KEY --hostname=gh-rdp-${{ github.run_id }} | Out-Null
-          $tsIP = $null
-          $tries = 0
-          while (-not $tsIP -and $tries -lt 20) {
-            Start-Sleep -Seconds 3
-            $tsIP = (& $exe ip -4).Trim()
-            $tries++
-          }
-          if (-not $tsIP) { Write-Error "Tailscale failed" ; exit 1 }
-          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+          Invoke-WebRequest -Uri "https://bin.equinox.io/c/bNyj1mQVYHo/ngrok-v3-stable-windows-amd64.zip" -OutFile "$env:TEMP\ngrok.zip"
+          Expand-Archive -Path "$env:TEMP\ngrok.zip" -DestinationPath "$env:TEMP\ngrok" -Force
+          Move-Item "$env:TEMP\ngrok\ngrok.exe" "$env:TEMP\ngrok.exe"
+          & "$env:TEMP\ngrok.exe" config add-authtoken $env:NGROK_AUTHTOKEN
+          Start-Process -FilePath "$env:TEMP\ngrok.exe" -ArgumentList "tcp 3389" -WindowStyle Hidden
+
+      - name: Get Ngrok Public URL
+        id: ngrok
+        shell: powershell
+        run: |
+          Start-Sleep -Seconds 10
+          $url = (Invoke-WebRequest -Uri "http://localhost:4040/api/tunnels" | ConvertFrom-Json).tunnels[0].public_url
+          $host = $url.Split(":")[1].TrimStart("/")
+          $port = $url.Split(":")[2]
+          echo "NGROK_HOST=$host" >> $env:GITHUB_ENV
+          echo "NGROK_PORT=$port" >> $env:GITHUB_ENV
+
+      - name: Install Parsec
+        run: |
+          $installer = "$env:TEMP\parsec.msi"
+          Invoke-WebRequest -Uri "https://builds.parsec.app/package/parsec-windows.exe" -OutFile $installer
+          Start-Process $installer -ArgumentList "/quiet /norestart" -Wait
+          Start-Sleep -Seconds 10
+          Start-Process "C:\Program Files\Parsec\parsec.exe"
 
       - name: Print connection info
         run: |
           Write-Host "========================================="
           Write-Host "RDP READY!"
-          Write-Host "Tailscale IP: $env:TAILSCALE_IP"
+          Write-Host "Ngrok RDP: $env:NGROK_HOST:$env:NGROK_PORT"
           Write-Host "Username: RDP"
           Write-Host "Password: $env:RDP_PASSWORD"
-          Write-Host "Connect using Tailscale + Remote Desktop"
+          Write-Host ""
+          Write-Host "PARSEC IS INSTALLED - Connect using Parsec for LOW LATENCY!"
           Write-Host "========================================="
         shell: powershell
 
