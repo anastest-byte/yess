@@ -38,49 +38,27 @@ jobs:
           Write-Host "Password: Dberly1312@2026"
           Write-Host "========================================="
 
-      - name: Install Ngrok
+      - name: Install and Run Ngrok
         env:
           NGROK_AUTHTOKEN: ${{ secrets.NGROK_AUTHTOKEN }}
         run: |
           Invoke-WebRequest -Uri "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip" -OutFile "$env:TEMP\ngrok.zip" -UseBasicParsing
           Expand-Archive -Path "$env:TEMP\ngrok.zip" -DestinationPath "$env:TEMP" -Force
           & "$env:TEMP\ngrok.exe" config add-authtoken $env:NGROK_AUTHTOKEN
-          Start-Process -FilePath "$env:TEMP\ngrok.exe" -ArgumentList "tcp 3389 --log=stdout" -WindowStyle Hidden
-
-      - name: Get Ngrok Public URL (with longer wait)
-        shell: powershell
-        run: |
-          Start-Sleep -Seconds 30
-          try {
-            $tunnels = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels" -UseBasicParsing -TimeoutSec 10
-            $tcpTunnel = $tunnels.tunnels | Where-Object { $_.proto -eq "tcp" }
-            if ($tcpTunnel) {
-              $url = $tcpTunnel.public_url
-              $host = $url.Split(":")[1].TrimStart("//")
-              $port = $url.Split(":")[2]
-              echo "NGROK_HOST=$host" >> $env:GITHUB_ENV
-              echo "NGROK_PORT=$port" >> $env:GITHUB_ENV
-              Write-Host "Ngrok TCP Tunnel: $url"
-            } else {
-              Write-Error "No TCP tunnel found in API"
-              exit 1
-            }
-          } catch {
-            Write-Error "Failed to get tunnel from API: $_"
-            exit 1
-          }
+          & "$env:TEMP\ngrok.exe" tcp 3389
 
       - name: Print connection info
         run: |
           Write-Host "========================================="
           Write-Host "RDP READY!"
-          Write-Host "Ngrok RDP Address: $env:NGROK_HOST:$env:NGROK_PORT"
           Write-Host "Username: RDP"
           Write-Host "Password: Dberly1312@2026"
           Write-Host ""
-          Write-Host "Connect using Remote Desktop (mstsc.exe)"
+          Write-Host "Ngrok is running in the background."
+          Write-Host "Look at the job log above for the line that starts with 'tcp://'"
+          Write-Host "Example: tcp://0.tcp.ngrok.io:12345"
+          Write-Host "Use that address in Remote Desktop to connect."
           Write-Host "========================================="
-        shell: powershell
 
       - name: Keep alive
         run: while ($true) { Start-Sleep -Seconds 300 }
