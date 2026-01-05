@@ -5,7 +5,7 @@ on:
 
 jobs:
   secure-rdp:
-    runs-on: windows-2022
+    runs-on: windows-latest
     timeout-minutes: 360
     steps:
       - name: Enable Remote Desktop and Firewall
@@ -37,7 +37,7 @@ jobs:
         env:
           NGROK_AUTHTOKEN: ${{ secrets.NGROK_AUTHTOKEN }}
         run: |
-          Invoke-WebRequest -Uri "https://bin.equinox.io/c/bNyj1mQVYHo/ngrok-v3-stable-windows-amd64.zip" -OutFile "$env:TEMP\ngrok.zip" -UseBasicParsing
+          Invoke-WebRequest -Uri "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip" -OutFile "$env:TEMP\ngrok.zip" -UseBasicParsing
           Expand-Archive -Path "$env:TEMP\ngrok.zip" -DestinationPath "$env:TEMP" -Force
           & "$env:TEMP\ngrok.exe" config add-authtoken $env:NGROK_AUTHTOKEN
           Start-Process -FilePath "$env:TEMP\ngrok.exe" -ArgumentList "tcp 3389 --log=stdout" -WindowStyle Hidden
