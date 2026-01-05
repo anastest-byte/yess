@@ -5,47 +5,32 @@ on:
 
 jobs:
   secure-rdp:
-    runs-on: windows-2022
-    # GitHub limit: change if you want but account may enforce lower limit
+    runs-on: windows-latest
     timeout-minutes: 360
-
     steps:
       - name: Enable Remote Desktop and Firewall
         run: |
-          # Enable RDP
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
-
-          # Optional: disable NLA (if client can't use it)
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
-
-          # Ensure firewall allows 3389 (for local/Tailscale)
           netsh advfirewall firewall delete rule name="RDP-Tailscale" > $null 2>&1
           netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389
-
           Restart-Service -Name TermService -Force
 
       - name: Create local RDP user and print password
         id: create_user
         shell: powershell
         run: |
-          # Generate a strong password (16 chars)
           Add-Type -AssemblyName System.Web
           $pwd = [System.Web.Security.Membership]::GeneratePassword(16,3)
           $secure = ConvertTo-SecureString $pwd -AsPlainText -Force
-
-          # Create user if doesn't exist
           if (-not (Get-LocalUser -Name "RDP" -ErrorAction SilentlyContinue)) {
-            New-LocalUser -Name "RDP" -Password $secure -AccountNeverExpires -UserMayNotChangePassword:$false
+            New-LocalUser -Name "RDP" -Password $secure -AccountNeverExpires
           } else {
-            # If exists, set new password
             Set-LocalUser -Name "RDP" -Password $secure
           }
-
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP" -ErrorAction SilentlyContinue
           Add-LocalGroupMember -Group "Administrators" -Member "RDP" -ErrorAction SilentlyContinue
-
-          # Expose to subsequent steps via output and GITHUB_ENV
           echo "RDP_PASSWORD=$pwd" >> $env:GITHUB_ENV
           echo "::set-output name=password::$pwd"
 
@@ -62,15 +47,7 @@ jobs:
           TAILSCALE_AUTH_KEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
         run: |
           $exe = "$env:ProgramFiles\Tailscale\tailscale.exe"
-          if (-not (Test-Path $exe)) {
-            Write-Error "Tailscale not found at $exe"
-            exit 1
-          }
-
-          # Bring up tailscale with provided auth key
           & $exe up --authkey=$env:TAILSCALE_AUTH_KEY --hostname=gh-rdp-${{ github.run_id }} | Out-Null
-
-          # Wait for IPv4 address assignment
           $tsIP = $null
           $tries = 0
           while (-not $tsIP -and $tries -lt 20) {
@@ -78,31 +55,20 @@ jobs:
             $tsIP = (& $exe ip -4).Trim()
             $tries++
           }
-
-          if (-not $tsIP) {
-            Write-Error "Tailscale did not assign an IP. Check auth key and tailnet."
-            exit 1
-          }
-
-          Write-Host "TAILSCALE_IP=$tsIP"
+          if (-not $tsIP) { Write-Error "Tailscale failed" ; exit 1 }
           echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
 
-      - name: Print connection info (IMPORTANT)
+      - name: Print connection info
         run: |
           Write-Host "========================================="
-          Write-Host "RDP via Tailscale ready!"
+          Write-Host "RDP READY!"
           Write-Host "Tailscale IP: $env:TAILSCALE_IP"
           Write-Host "Username: RDP"
           Write-Host "Password: $env:RDP_PASSWORD"
-          Write-Host ""
-          Write-Host "To connect: install Tailscale client on your PC, join same tailnet, then open Remote Desktop and connect to $env:TAILSCALE_IP"
+          Write-Host "Connect using Tailscale + Remote Desktop"
           Write-Host "========================================="
         shell: powershell
 
-      - name: Keep workflow alive (until timeout)
-        run: |
-          Write-Host "Keeping runner alive. Stop the workflow to terminate the RDP session."
-          while ($true) {
-            Start-Sleep -Seconds 300
-          }
+      - name: Keep alive
+        run: while ($true) { Start-Sleep -Seconds 300 }
         shell: powershell
