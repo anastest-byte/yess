@@ -5,7 +5,7 @@ on:
 
 jobs:
   secure-rdp:
-    runs-on: windows-latest
+    runs-on: windows-2022
     timeout-minutes: 360
     steps:
       - name: Enable Remote Desktop and Firewall
@@ -18,18 +18,27 @@ jobs:
 
       - name: Create RDP user with fixed password
         run: |
-          $secure = ConvertTo-SecureString "dberly1312" -AsPlainText -Force
+          $pwd = "Dberly1312@2026"
+          $secure = ConvertTo-SecureString $pwd -AsPlainText -Force
+
           if (-not (Get-LocalUser -Name "RDP" -ErrorAction SilentlyContinue)) {
-            New-LocalUser -Name "RDP" -Password $secure -AccountNeverExpires
+            New-LocalUser -Name "RDP" -Password $secure -AccountNeverExpires -PasswordNeverExpires
+            Write-Host "Created new RDP user"
           } else {
             Set-LocalUser -Name "RDP" -Password $secure
+            Write-Host "Updated RDP user password"
           }
+
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP" -ErrorAction SilentlyContinue
           Add-LocalGroupMember -Group "Administrators" -Member "RDP" -ErrorAction SilentlyContinue
-          Write-Host "RDP Username: RDP"
-          Write-Host "RDP Password: dberly1312"
 
-      - name: Install Latest Ngrok (2026)
+          Write-Host "========================================="
+          Write-Host "RDP READY!"
+          Write-Host "Username: RDP"
+          Write-Host "Password: Dberly1312@2026"
+          Write-Host "========================================="
+
+      - name: Install Ngrok
         env:
           NGROK_AUTHTOKEN: ${{ secrets.NGROK_AUTHTOKEN }}
         run: |
@@ -41,7 +50,7 @@ jobs:
       - name: Get Ngrok Public URL (with longer wait)
         shell: powershell
         run: |
-          Start-Sleep -Seconds 30  # نستنى 30 ثانية عشان ngrok يلحق يفتح
+          Start-Sleep -Seconds 30
           try {
             $tunnels = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels" -UseBasicParsing -TimeoutSec 10
             $tcpTunnel = $tunnels.tunnels | Where-Object { $_.proto -eq "tcp" }
@@ -67,10 +76,9 @@ jobs:
           Write-Host "RDP READY!"
           Write-Host "Ngrok RDP Address: $env:NGROK_HOST:$env:NGROK_PORT"
           Write-Host "Username: RDP"
-          Write-Host "Password: dberly1312"
+          Write-Host "Password: Dberly1312@2026"
           Write-Host ""
           Write-Host "Connect using Remote Desktop (mstsc.exe)"
-          Write-Host "Parsec not installed (install manually if needed)"
           Write-Host "========================================="
         shell: powershell
 
