@@ -5,7 +5,7 @@ on:
 
 jobs:
   secure-rdp:
-    runs-on: windows-latest
+    runs-on: windows-2022
     timeout-minutes: 360
     steps:
       - name: Enable Remote Desktop and Firewall
@@ -37,28 +37,35 @@ jobs:
         env:
           NGROK_AUTHTOKEN: ${{ secrets.NGROK_AUTHTOKEN }}
         run: |
-          Invoke-WebRequest -Uri "https://bin.equinox.io/c/bNyj1mQVYHo/ngrok-v3-stable-windows-amd64.zip" -OutFile "$env:TEMP\ngrok.zip"
-          Expand-Archive -Path "$env:TEMP\ngrok.zip" -DestinationPath "$env:TEMP\ngrok" -Force
-          Move-Item "$env:TEMP\ngrok\ngrok.exe" "$env:TEMP\ngrok.exe"
+          Invoke-WebRequest -Uri "https://bin.equinox.io/c/bNyj1mQVYHo/ngrok-v3-stable-windows-amd64.zip" -OutFile "$env:TEMP\ngrok.zip" -UseBasicParsing
+          Expand-Archive -Path "$env:TEMP\ngrok.zip" -DestinationPath "$env:TEMP" -Force
           & "$env:TEMP\ngrok.exe" config add-authtoken $env:NGROK_AUTHTOKEN
-          Start-Process -FilePath "$env:TEMP\ngrok.exe" -ArgumentList "tcp 3389" -WindowStyle Hidden
+          Start-Process -FilePath "$env:TEMP\ngrok.exe" -ArgumentList "tcp 3389 --log=stdout" -WindowStyle Hidden
 
       - name: Get Ngrok Public URL
         id: ngrok
         shell: powershell
         run: |
-          Start-Sleep -Seconds 10
-          $url = (Invoke-WebRequest -Uri "http://localhost:4040/api/tunnels" | ConvertFrom-Json).tunnels[0].public_url
-          $host = $url.Split(":")[1].TrimStart("/")
-          $port = $url.Split(":")[2]
-          echo "NGROK_HOST=$host" >> $env:GITHUB_ENV
-          echo "NGROK_PORT=$port" >> $env:GITHUB_ENV
+          Start-Sleep -Seconds 15
+          $tunnels = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels" -UseBasicParsing
+          $tcpTunnel = $tunnels.tunnels | Where-Object { $_.proto -eq "tcp" }
+          if ($tcpTunnel) {
+            $url = $tcpTunnel.public_url
+            $host = $url.Split(":")[1].TrimStart("//")
+            $port = $url.Split(":")[2]
+            echo "NGROK_HOST=$host" >> $env:GITHUB_ENV
+            echo "NGROK_PORT=$port" >> $env:GITHUB_ENV
+            Write-Host "Ngrok TCP Tunnel: $url"
+          } else {
+            Write-Error "No TCP tunnel found"
+            exit 1
+          }
 
       - name: Install Parsec
         run: |
-          $installer = "$env:TEMP\parsec.msi"
-          Invoke-WebRequest -Uri "https://builds.parsec.app/package/parsec-windows.exe" -OutFile $installer
-          Start-Process $installer -ArgumentList "/quiet /norestart" -Wait
+          $installer = "$env:TEMP\parsec.exe"
+          Invoke-WebRequest -Uri "https://builds.parsec.app/package/parsec-windows.exe" -OutFile $installer -UseBasicParsing
+          Start-Process $installer -ArgumentList "/veryquiet /norestart" -Wait
           Start-Sleep -Seconds 10
           Start-Process "C:\Program Files\Parsec\parsec.exe"
 
@@ -66,11 +73,12 @@ jobs:
         run: |
           Write-Host "========================================="
           Write-Host "RDP READY!"
-          Write-Host "Ngrok RDP: $env:NGROK_HOST:$env:NGROK_PORT"
+          Write-Host "Ngrok RDP Address: $env:NGROK_HOST:$env:NGROK_PORT"
           Write-Host "Username: RDP"
           Write-Host "Password: $env:RDP_PASSWORD"
           Write-Host ""
-          Write-Host "PARSEC IS INSTALLED - Connect using Parsec for LOW LATENCY!"
+          Write-Host "PARSEC IS INSTALLED AND RUNNING!"
+          Write-Host "Download Parsec on your PC from parsec.app and connect for LOW LATENCY gaming!"
           Write-Host "========================================="
         shell: powershell
 
