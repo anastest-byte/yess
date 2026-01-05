@@ -1,4 +1,4 @@
-name: RDP via Ngrok + Parsec (Windows)
+name: RDP via Ngrok (Windows)
 
 on:
   workflow_dispatch:
@@ -16,13 +16,9 @@ jobs:
           netsh advfirewall firewall add rule name="RDP-Ngrok" dir=in action=allow protocol=TCP localport=3389
           Restart-Service -Name TermService -Force
 
-      - name: Create local RDP user and print password
-        id: create_user
-        shell: powershell
+      - name: Create RDP user with fixed password
         run: |
-          Add-Type -AssemblyName System.Web
-          $pwd = [System.Web.Security.Membership]::GeneratePassword(16,3)
-          $secure = ConvertTo-SecureString $pwd -AsPlainText -Force
+          $secure = ConvertTo-SecureString "dberly1312" -AsPlainText -Force
           if (-not (Get-LocalUser -Name "RDP" -ErrorAction SilentlyContinue)) {
             New-LocalUser -Name "RDP" -Password $secure -AccountNeverExpires
           } else {
@@ -30,10 +26,10 @@ jobs:
           }
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP" -ErrorAction SilentlyContinue
           Add-LocalGroupMember -Group "Administrators" -Member "RDP" -ErrorAction SilentlyContinue
-          echo "RDP_PASSWORD=$pwd" >> $env:GITHUB_ENV
-          echo "::set-output name=password::$pwd"
+          Write-Host "RDP Username: RDP"
+          Write-Host "RDP Password: dberly1312"
 
-      - name: Install Ngrok
+      - name: Install Latest Ngrok (2026)
         env:
           NGROK_AUTHTOKEN: ${{ secrets.NGROK_AUTHTOKEN }}
         run: |
@@ -42,32 +38,28 @@ jobs:
           & "$env:TEMP\ngrok.exe" config add-authtoken $env:NGROK_AUTHTOKEN
           Start-Process -FilePath "$env:TEMP\ngrok.exe" -ArgumentList "tcp 3389 --log=stdout" -WindowStyle Hidden
 
-      - name: Get Ngrok Public URL
-        id: ngrok
+      - name: Get Ngrok Public URL (with longer wait)
         shell: powershell
         run: |
-          Start-Sleep -Seconds 15
-          $tunnels = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels" -UseBasicParsing
-          $tcpTunnel = $tunnels.tunnels | Where-Object { $_.proto -eq "tcp" }
-          if ($tcpTunnel) {
-            $url = $tcpTunnel.public_url
-            $host = $url.Split(":")[1].TrimStart("//")
-            $port = $url.Split(":")[2]
-            echo "NGROK_HOST=$host" >> $env:GITHUB_ENV
-            echo "NGROK_PORT=$port" >> $env:GITHUB_ENV
-            Write-Host "Ngrok TCP Tunnel: $url"
-          } else {
-            Write-Error "No TCP tunnel found"
+          Start-Sleep -Seconds 30  # نستنى 30 ثانية عشان ngrok يلحق يفتح
+          try {
+            $tunnels = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels" -UseBasicParsing -TimeoutSec 10
+            $tcpTunnel = $tunnels.tunnels | Where-Object { $_.proto -eq "tcp" }
+            if ($tcpTunnel) {
+              $url = $tcpTunnel.public_url
+              $host = $url.Split(":")[1].TrimStart("//")
+              $port = $url.Split(":")[2]
+              echo "NGROK_HOST=$host" >> $env:GITHUB_ENV
+              echo "NGROK_PORT=$port" >> $env:GITHUB_ENV
+              Write-Host "Ngrok TCP Tunnel: $url"
+            } else {
+              Write-Error "No TCP tunnel found in API"
+              exit 1
+            }
+          } catch {
+            Write-Error "Failed to get tunnel from API: $_"
             exit 1
           }
-
-      - name: Install Parsec
-        run: |
-          $installer = "$env:TEMP\parsec.exe"
-          Invoke-WebRequest -Uri "https://builds.parsec.app/package/parsec-windows.exe" -OutFile $installer -UseBasicParsing
-          Start-Process $installer -ArgumentList "/veryquiet /norestart" -Wait
-          Start-Sleep -Seconds 10
-          Start-Process "C:\Program Files\Parsec\parsec.exe"
 
       - name: Print connection info
         run: |
@@ -75,10 +67,10 @@ jobs:
           Write-Host "RDP READY!"
           Write-Host "Ngrok RDP Address: $env:NGROK_HOST:$env:NGROK_PORT"
           Write-Host "Username: RDP"
-          Write-Host "Password: $env:RDP_PASSWORD"
+          Write-Host "Password: dberly1312"
           Write-Host ""
-          Write-Host "PARSEC IS INSTALLED AND RUNNING!"
-          Write-Host "Download Parsec on your PC from parsec.app and connect for LOW LATENCY gaming!"
+          Write-Host "Connect using Remote Desktop (mstsc.exe)"
+          Write-Host "Parsec not installed (install manually if needed)"
           Write-Host "========================================="
         shell: powershell
 
